@@ -17,9 +17,12 @@ pid_control_topic = app.topic('pid_control')
 # Initial Values
 process_count = 0
 max_iterations = 300
+# Tf and Caf are constant values of the feed. 
 Tf = 350
 Caf = 1
-ts = np.linspace(0, 10, 301)  # Changed to a finer time grid for better integration
+ts = [0,0.03333]  
+initial_Ca = 0.87725294608097
+initial_T = 324.475443431599
 
 print("Running cstr_model script with unique ID: 12345")
 
@@ -60,6 +63,14 @@ async def cstr(cstr):
 @app.agent(pid_control_topic)
 async def consume_u(events):
     global process_count
+    print("Starting PID control loop")
+    initial_values = {
+        'Ca': initial_Ca,
+        'T': initial_T
+    }
+    print(f"Sending initial values: Ca: {initial_Ca}, T: {initial_T}")
+    await cstr_topic.send(value=initial_values)
+
     async for event in events:
         if process_count >= max_iterations:
             await app.stop()
