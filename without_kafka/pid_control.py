@@ -4,29 +4,41 @@ from cstr_reactor import simulate_cstr, cstr  # Ensure cstr is imported
 from scipy.integrate import odeint
 
 # PID parameters and initial conditions
-Kc = 4.61730615181 * 2.0
-tauI = 0.913444964569 / 4.0
+Kc = 9.23461230362
+tauI = 0.22836124114
 tauD = 0.0
 
 # Control loop
 def pid_control(T_ss, u_ss, t, Tf, Caf, x0):
-    u = np.ones(len(t)) * u_ss
+    # u_ss = 300 
+    # T_ss = 324.475443431599
+    # Tf = 1 
+    # Caf = 350 
     op = np.ones(len(t)) * u_ss
     sp = np.ones(len(t)) * T_ss
+    u = np.ones(len(t)) * u_ss
+    op = np.ones(len(t)) * u_ss
+    P = np.zeros(len(t))
+    I = np.zeros(len(t))
+    D = np.zeros(len(t))
+    dpv = np.zeros(len(t))
+    pv = np.zeros(len(t))
+
+    #sp[0] = 300 to start and then increase by 7 every 20 steps 
     for i in range(15):
         sp[i * 20:(i + 1) * 20] = 300 + i * 7.0
     sp[300] = sp[299]
-
     e = np.zeros(len(t))
     ie = np.zeros(len(t))
     dpv = np.zeros(len(t))
-
+    
+    # x0 = [0.87725294608097, 324.475443431599]
+    # So Ca[0] = 0.87725294608097,
+    # T[0] = 324.475443431599
     Ca = np.ones(len(t)) * x0[0]
     T = np.ones(len(t)) * x0[1]
 
-    op_hi = 350.0
-    op_lo = 250.0
-
+    #T[0] = 324.475443431599
     T[0] = T_ss
 
     plt.figure(figsize=(10, 7))
@@ -34,21 +46,26 @@ def pid_control(T_ss, u_ss, t, Tf, Caf, x0):
     plt.show()
 
     for i in range(len(t) - 1):
+        # [0. 0.03333]
+        # delta_t = 0.03333
         delta_t = t[i + 1] - t[i]
+        # e[0] = 300 - 324.475443431599 = -24.475443431599
         e[i] = sp[i] - T[i]
+   
         if i >= 1:
-            dpv[i] = (T[i] - T[i - 1]) / delta_t
-            ie[i] += e[i] * delta_t
+            # ie is showing as 0.8158481143866329610 not the value below wtf 
+            # ie[1] = 0 + -24.475443431599 * 0.033 = −0.8076896332427671.
+            ie[i] += e[i] * delta_t   
+            dpv[i] = (pv[i] - pv[i - 1]) / delta_t
 
-        op[i] = op[0] + Kc * (e[i] + ie[i] / tauI - tauD * dpv[i])
-
-        if op[i] > op_hi:
-            op[i] = op_hi
-            ie[i] -= e[i] * delta_t
-        elif op[i] < op_lo:
-            op[i] = op_lo
-            ie[i] -= e[i] * delta_t
-
+        P[i] = Kc * e[i]
+        I[i] = Kc / tauI * ie[i]
+        D[i] = -Kc * tauD * dpv[i]
+        op[i] = op[0] + P[i] + I[i] + D[i]
+        # op is showing as 250     
+        # op[1] = 300.0 + 9.23461230362 * -24.475443431599 + (-24.475443431599 * 0.033) / 0.22836124114 = 
+        # op[i] = op[0] + Kc * e[i] + ie[i] / tauI
+        # u[1] = 300.0 
         u[i + 1] = op[i]
 
         x0 = [Ca[i], T[i]]
@@ -93,6 +110,7 @@ def pid_control(T_ss, u_ss, t, Tf, Caf, x0):
 
 # Main execution
 if __name__ == "__main__":
+    # [0. 0.03333 0.06667 0.1 0.13333 0.16667 0.2 0.23333 0.26667 0.3]
     t = np.linspace(0, 10, 301)
     x0 = [0.87725294608097, 324.475443431599]
     u_ss = 300.0

@@ -1,7 +1,16 @@
+#Things to fix:
+# Don't understand how the correct values are being produces
+# The first Ca and T values to be sent shouln't be the Caf and Tf but rather 
+# 0.87725294608097, 324.475443431599 respectively 
+# I'm not getting the correct u or op after first iteration it should be 300
+# Received Ca: 0.87725294608097, T: 324.475443431599, Computed u: 40.990300358678404, Setpoint: 300.0, IE: -0.8157665295751942 
+# However op[i] should be 250
+
 import faust
 import logging
 import json
 import numpy as np
+
 
 app = faust.App(
     'pid_controller',
@@ -16,14 +25,14 @@ pid_control_topic = app.topic('pid_control')
 
 # Initial Values
 
-# Initial Values 
+# Initial Values and Constant Values
 # To stop the processs after process is run a max iterations. 
 process_count = 0
 max_iterations = 300
 # The setpoint that the operator will have input. The setpoint value icreases by 7.0 every 20 timesteps. 
 # setpoint = 1
 # time steps, assuming regular time series 
-ts = [0,10]
+ts = [0,0.03333]
 # Initial steady state temperature of the cooling jacket. 
 u_ss = 300.0
 # Initial steady state temperature. Primarily used to set the desired setpoint for temperature control.
@@ -33,15 +42,19 @@ Tf = 350
 # Concentration A of the feed
 Caf = 1 
 # Initial setpoint of the reactor, operator controlled. The setpoint value icreases by 7.0 every 20 timesteps. 
-sp = T_ss
+sp = u_ss
+# Inital Ca
+Ca0 = 0.87725294608097
+# Initial T 
+T0 = 324.475443431599 
 
 # PID parameters
-Kc = 4.61730615181 * 2.0
-tauI = 0.913444964569 / 4.0
-tauD = 0.0
+Kc = 9.23461230362
+tauI = 0.22836124114
 # To retain previous values 
 T_previous = T_ss
-ie_previous = 00
+ie_previous = 0
+
 
 # This function implements the PID control loop for the CSTR. 
 # T_ss: Steady-state temperature.
@@ -56,18 +69,19 @@ ie_previous = 00
 
 # Returns: Control input (u).
 # Where the control input (u) is the temperature of the cooling jacket and the temperatuer (T) is the temperature of the tank.  
-
-def pid_control(T_ss, u_ss, ts, Tf, Caf, Ca, T, sp, pv, ie_previous):
+    # pid_control(T_ss, u_ss, ts, Tf, Caf, ca, t_current, sp, T_previous, ie_previous)
+def pid_control(T_ss, u_ss, ts, Tf, Caf, Ca, T, sp, ie_previous):
     """Compute the u value based on PID control."""
     delta_t = ts[1] - ts[0]
     e = sp - T
-    dpv = (T - pv) / delta_t if pv is not None else 0
-    ie = ie_previous + e * delta_t if ie_previous is not None else 0
+    if process_count >= 1:
+        ie = ie_previous + e * delta_t
+    else:
+        ie = 0.0
     P = Kc * e
     I = Kc / tauI * ie
-    D = -Kc * tauD * dpv
-    op = u_ss + P + I + D
-
+    print(f"delta_t: {delta_t}, e: {e}, ie_previous: {ie_previous}, ie: {ie}")  # Debugging print
+    op = u_ss + P + I 
     # Upper and Lower limits on OP
     op_hi = 350.0
     op_lo = 250.0
@@ -83,29 +97,35 @@ def pid_control(T_ss, u_ss, ts, Tf, Caf, Ca, T, sp, pv, ie_previous):
 @app.agent(cstr_topic)
 async def process_cstr_events(events):
     global T_previous, sp, process_count, ie_previous
+    # first_iteration = True
     async for event in events:
         if process_count >= max_iterations:
             await app.stop()
             break
-        ca = event.get('Ca')
+        ca_current = event.get('Ca')
         t_current = event.get('T')
-        if ca is not None and t_current is not None:
-            u, ie_current = pid_control(T_ss, u_ss, ts, Tf, Caf, ca, t_current, sp, T_previous, ie_previous)
+        print(f"Ca into pid: {ca_current}, T into pid: {t_current}")
+        if ca_current is not None and t_current is not None:
+            # if first_iteration:
+            #     t_current = T_ss  # Use initial T_ss for the first iteration
+            #     ca = Caf  # Use initial T_ss for the first iteration
+            #     first_iteration = False
+            u, ie_current = pid_control(T_ss, u_ss, ts, Tf, Caf, ca_current, t_current, sp, ie_previous)
             control_message = {
-                'Ca': ca,
+                'Ca': ca_current,
                 'T': t_current,
                 'u': u,
                 'setpoint': sp,
                 'ie': ie_current
             }
-            print(f"Received Ca: {ca}, T: {t_current}, Computed u: {u}, Setpoint: {sp}, IE: {ie_current}")
+            print(f"Received Ca: {ca_current}, T: {t_current}, Computed u: {u}, Setpoint: {sp}, IE: {ie_current}")
             await pid_control_topic.send(value=control_message)
             T_previous = t_current  # Update the previous temperature value
             ie_previous = ie_current  # Update the previous error value
 
             # Update the iteration count and setpoint
             process_count += 1
-            if process_count % 10 == 0:
+            if process_count % 20 == 0:
                 sp += 7.0
 
 if __name__ == '__main__':

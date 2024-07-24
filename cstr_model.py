@@ -2,6 +2,7 @@ import faust
 import numpy as np
 from scipy.integrate import odeint
 
+
 app = faust.App(
     'cstr_model',
     broker='kafka://localhost:9092',
@@ -18,7 +19,10 @@ process_count = 0
 max_iterations = 300
 Tf = 350
 Caf = 1
-ts = np.linspace(0, 10, 100)  # Changed to a finer time grid for better integration
+ts = np.linspace(0, 10, 301)  # Changed to a finer time grid for better integration
+
+print("Running cstr_model script with unique ID: 12345")
+
 
 def cstr_model_func(x, t, u, Tf, Caf):
     Ca, T = x
@@ -50,7 +54,8 @@ async def cstr(cstr):
     async for Ca_T_values in cstr:
         Ca = Ca_T_values.get('Ca')
         T = Ca_T_values.get('T')
-        print(f"Received Ca: {Ca}, T: {T}")
+        print(f"cstr func")
+        print(f"Received Ca cstr: {Ca}, T: {T}")
 
 @app.agent(pid_control_topic)
 async def consume_u(events):
@@ -62,30 +67,17 @@ async def consume_u(events):
         u = event.get('u')
         Ca = event.get('Ca')
         T = event.get('T')
+        print(f"Into simulate_cstr u: {u}, Into simulate_cstr Ca: {Ca}, Into simulate_cstr T: {T}")
         if u is not None and Ca is not None and T is not None:
             new_Ca, new_T = simulate_cstr(Ca, T, ts, u, Tf, Caf)
             new_values = {
                 'Ca': new_Ca,
                 'T': new_T,
             }
+            print(f"consume sent")
             print(f"Received u: {u}, Computed new Ca: {new_Ca}, new T: {new_T}")
             await cstr_topic.send(value=new_values)
             process_count += 1
-
-@app.task
-async def send_Ca_T_values():
-    Ca, T = Caf, Tf  # Initial Ca and T values are the same as the feed values
-    message = {
-        'Ca': Ca,
-        'T': T,
-    }
-    await cstr_topic.send(value=message)
-
-@app.command()
-async def send_cstr_value(self, Ca: float, T: float):
-    message = {'Ca': Ca, 'T': T}
-    await cstr_topic.send(value=message)
-    print(f"Sent Ca: {Ca}, T: {T}")
 
 if __name__ == '__main__':
     app.main()
